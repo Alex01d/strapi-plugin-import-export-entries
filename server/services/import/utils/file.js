@@ -4,6 +4,7 @@ const trim = require('lodash/trim');
 const os = require('os');
 const path = require('path');
 const request = require('request');
+const slugify = require('@sindresorhus/slugify');
 
 const { isObjectSafe } = require('../../../../libs/objects');
 
@@ -27,11 +28,11 @@ const findOrImportFile = async (fileData, user, { allowedFileTypes }) => {
     if (!file && fileData.id) {
       file = await importById(fileData.id, allowedFileTypes);
     }
+    if (!file && fileData.url) {
+      file = await importByUrl(fileData, allowedFileTypes, user);
+    }
     if (!file && fileData.name) {
       file = await importByName(fileData.name, allowedFileTypes);
-    }
-    if (!file && fileData.url) {
-      file = await importByUrl(fileData.url, allowedFileTypes, user);
     }
     return file;
   }
@@ -57,15 +58,15 @@ const importByName = async (name, allowedFileTypes) => {
   return file;
 };
 
-const importByUrl = async (url, allowedFileTypes, user) => {
+const importByUrl = async ({ url, name, alternativeText, caption }, allowedFileTypes, user) => {
   const checkResult = isValidFileUrl(url, allowedFileTypes);
   if (!checkResult.isValid) {
     return null;
   }
 
-  let file = await findFile({ name: checkResult.fileData.fileName });
+  let file = await findFile({ hash: checkResult.fileData.fileName });
   if (!file) {
-    file = await importFile({ url: checkResult.fileData.rawUrl }, user);
+    file = await importFile({ url: checkResult.fileData.rawUrl, name, alternativeText, caption }, user);
   }
 
   return file;
@@ -78,11 +79,20 @@ const importByUrl = async (url, allowedFileTypes, user) => {
  * @param {string} [filters.name] - File name.
  * @returns
  */
-const findFile = async ({ id, name }) => {
+const findFile = async ({ id, hash, name }) => {
   let file = null;
 
   if (id) {
     file = await strapi.entityService.findOne('plugin::upload.file', id, { populate: '*' });
+  } else if (hash) {
+    [file] = await strapi.entityService.findMany('plugin::upload.file', {
+      where: {
+        hash: {
+          $startsWith: `${hash}_`,
+        },
+      },
+      limit: 1,
+    });
   } else if (name) {
     [file] = await strapi.entityService.findMany('plugin::upload.file', { filters: { name }, limit: 1 });
   }
@@ -90,7 +100,7 @@ const findFile = async ({ id, name }) => {
   return file;
 };
 
-const importFile = async ({ url }, user) => {
+const importFile = async ({ url, name, alternativeText, caption }, user) => {
   let file;
   try {
     file = await fetchFile(url);
@@ -108,9 +118,9 @@ const importFile = async ({ url }, user) => {
           },
           data: {
             fileInfo: {
-              name: file.name,
-              alternativeText: file.name,
-              caption: file.name,
+              name: name || file.name,
+              alternativeText: alternativeText || file.name,
+              caption: caption || file.name,
             },
           },
         },
@@ -173,6 +183,16 @@ const deleteFileIfExists = (filePath) => {
   }
 };
 
+const getHashPart = (rawUrl) => {
+  const parsedUrl = new URL(decodeURIComponent(rawUrl));
+  const pathname = parsedUrl.pathname;
+
+  return slugify(
+    pathname.substring(0, pathname.lastIndexOf('.')) || pathname, // pathname with no extension
+    { separator: '_', lowercase: false },
+  );
+};
+
 const isValidFileUrl = (url, allowedFileTypes) => {
   try {
     const fileData = getFileDataFromRawUrl(url);
@@ -182,6 +202,7 @@ const isValidFileUrl = (url, allowedFileTypes) => {
       fileData: {
         fileName: fileData.name,
         rawUrl: url,
+        hashPart: getHashPart(url),
       },
     };
   } catch (err) {
@@ -225,9 +246,11 @@ const getFileDataFromRawUrl = (rawUrl) => {
   const parsedUrl = new URL(decodeURIComponent(rawUrl));
 
   const name = trim(parsedUrl.pathname.toLowerCase(), '/').replace(/\//g, '-');
+  const hashPart = getHashPart(rawUrl);
 
   return {
     name,
+    hashPart,
     extension: parsedUrl.pathname.split('.').pop().toLowerCase(),
   };
 };
