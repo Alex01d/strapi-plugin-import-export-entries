@@ -1,6 +1,7 @@
 const { isArraySafe, toArray } = require('../../../libs/arrays');
 const { ObjectBuilder, isObjectSafe } = require('../../../libs/objects');
 const { CustomSlugs } = require('../../config/constants');
+const { getConfig } = require('../../utils/getConfig');
 const { getModelAttributes, getModel } = require('../../utils/models');
 const { findOrImportFile } = require('./utils/file');
 const { parseInputData } = require('./utils/parsers');
@@ -33,7 +34,8 @@ const importData = async (dataRaw, { slug, format, user, idField }) => {
   if (slug === CustomSlugs.MEDIA) {
     res = await importMedia(data, { user });
   } else {
-    res = await importOtherSlug(data, { slug, user, idField });
+    // passing idField as an array to support hierarchical id fields
+    res = await importOtherSlug(data, { slug, user, idField: getConfig('importUniqueIdentifierField') || [idField] });
   }
 
   return res;
@@ -92,7 +94,7 @@ const importOtherSlug = async (data, { slug, user, idField }) => {
 const updateOrCreate = async (user, slug, data, idField = 'id') => {
   const relationAttributes = getModelAttributes(slug, { filterType: ['component', 'dynamiczone', 'media', 'relation'] });
   for (let attribute of relationAttributes) {
-    data[attribute.name] = await updateOrCreateRelation(user, attribute, data[attribute.name]);
+    data[attribute.name] = await updateOrCreateRelation(user, attribute, data[attribute.name], idField);
   }
 
   let entry;
@@ -106,19 +108,24 @@ const updateOrCreate = async (user, slug, data, idField = 'id') => {
 };
 
 const updateOrCreateCollectionType = async (user, slug, data, idField) => {
+  let usedIdField = idField[0];
   const whereBuilder = new ObjectBuilder();
-  if (data[idField]) {
-    whereBuilder.extend({ [idField]: data[idField] });
+  for (let field of idField) {
+    if (data[field]) {
+      usedIdField = field;
+      whereBuilder.extend({ [field]: data[field] });
+      break;
+    }
   }
   const where = whereBuilder.get();
 
   // Prevent strapi from throwing a unique constraint error on id field.
-  if (idField !== 'id') {
+  if (usedIdField !== 'id') {
     delete data.id;
   }
 
   let entry;
-  if (!where[idField]) {
+  if (!where[usedIdField]) {
     entry = await strapi.db.query(slug).create({ data });
   } else {
     entry = await strapi.db.query(slug).update({ where, data });
@@ -150,7 +157,7 @@ const updateOrCreateSingleType = async (user, slug, data, idField) => {
  * @param {Attribute} rel
  * @param {number | Object | Array<Object>} relData
  */
-const updateOrCreateRelation = async (user, rel, relData) => {
+const updateOrCreateRelation = async (user, rel, relData, idField) => {
   if (relData == null) {
     return null;
   }
@@ -199,7 +206,7 @@ const updateOrCreateRelation = async (user, rel, relData) => {
       if (typeof relDatum === 'number') {
         entryIds.push(relDatum);
       } else if (isObjectSafe(relDatum)) {
-        const entry = await updateOrCreate(user, rel.target, relDatum);
+        const entry = await updateOrCreate(user, rel.target, relDatum, idField);
         if (entry?.id) {
           entryIds.push(entry.id);
         }

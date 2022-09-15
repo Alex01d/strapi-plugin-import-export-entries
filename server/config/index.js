@@ -10,6 +10,7 @@ module.exports = {
      * Ignore extension check (trust imported JSON/CSV) or not.
      */
     ignoreExtensionCheck: false,
+    importUniqueIdentifierField: undefined,
   },
   validator: ({ serverPublicHostname } = {}) => {
     if (typeof serverPublicHostname !== 'string') {
