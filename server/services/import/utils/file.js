@@ -27,7 +27,8 @@ const findOrImportFile = async (fileData, user, { allowedFileTypes }) => {
   } else if (isObjectSafe(fileData)) {
     obj = fileData;
   } else {
-    throw new Error(`Invalid data format '${typeof fileData}' to import media. Only 'string', 'number', 'object' are accepted.`);
+    console.log('fileData', fileData);
+    // throw new Error(`Invalid data format '${typeof fileData}' to import media. Only 'string', 'number', 'object' are accepted.`);
   }
 
   let file = await findFile(obj, user, allowedFileTypes);
@@ -81,6 +82,22 @@ const importFile = async ({ id, url, name, alternativeText, caption }, user) => 
   let file;
   try {
     file = await fetchFile(url);
+
+    console.log({
+      files: {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        path: file.path,
+      },
+      data: {
+        fileInfo: {
+          name: name || file.name,
+          alternativeText: alternativeText || '',
+          caption: caption || '',
+        },
+      },
+    });
 
     let [uploadedFile] = await strapi
       .plugin('upload')
@@ -229,7 +246,7 @@ const getFileDataFromRawUrl = (rawUrl) => {
 
   // truncate name if too long for db
   // https://github.com/strapi/strapi/pull/13097
-  if (name.length > 200) {
+  if (name.length > 180) {
     if (extension.length < 5)
       name = `${hash}.${extension}`;
     else name = hash;
