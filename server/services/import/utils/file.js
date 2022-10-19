@@ -238,7 +238,7 @@ const getFileTypeChecker = (type) => {
 
 const getFileDataFromRawUrl = (rawUrl) => {
   const parsedUrl = new URL(decodeURIComponent(rawUrl));
-  const pathname = parsedUrl.pathname;
+  const pathname = '/' + parsedUrl.hostname + parsedUrl.pathname;
 
   const hash = crypto.createHash('sha512').update(pathname).digest('hex');
   const extension = pathname.split('.').pop().toLowerCase();
